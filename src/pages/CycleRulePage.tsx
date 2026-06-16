@@ -620,93 +620,89 @@ export const CycleRulePage: React.FC = () => {
       {showPreview && selectedRuleForGenerate && generateResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
-            {generateResult.total > 0 ? (
-              <>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                    <CheckCircle className="w-7 h-7 text-green-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-800">生成成功</h3>
-                    <p className="text-sm text-gray-500">{selectedRuleForGenerate.name}</p>
-                  </div>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-xl space-y-3 mb-4 flex-shrink-0">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">规则匹配日期</span>
-                    <span className="font-bold text-blue-600">{generateResult.matched.length} 个</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">成功生成场次</span>
-                    <span className="font-bold text-green-600">{generateResult.total} 场</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">冲突跳过日期</span>
-                    <span className="font-bold text-amber-600">{generateResult.skipped.length} 个</span>
-                  </div>
-                  {generateResult.intervalSkipped.length > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600 flex items-center gap-1">
-                        <SkipForward className="w-3.5 h-3.5" />
-                        间隔未排日期
-                      </span>
-                      <span className="font-bold text-gray-500">{generateResult.intervalSkipped.length} 个</span>
-                    </div>
-                  )}
-                </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                generateResult.total > 0 ? 'bg-green-100' : 'bg-amber-100'
+              }`}>
+                {generateResult.total > 0
+                  ? <CheckCircle className="w-7 h-7 text-green-500" />
+                  : <AlertTriangle className="w-7 h-7 text-amber-500" />
+                }
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-gray-800">
+                  {generateResult.total > 0 ? '生成成功' : '未生成场次'}
+                </h3>
+                <p className="text-sm text-gray-500">{selectedRuleForGenerate.name}</p>
+              </div>
+            </div>
 
-                <div className="flex gap-4 mb-4 text-xs flex-shrink-0">
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300" /> 生成成功</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> 冲突跳过</span>
-                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-300" /> 间隔未排</span>
-                </div>
-
-                <div className="flex-1 overflow-y-auto mb-4">
-                  {renderCalendar(
-                    calendarViewMonth,
-                    generateResult,
-                    selectedRuleForGenerate.startDate,
-                    selectedRuleForGenerate.endDate
-                  )}
-                </div>
-
-                {generateResult.intervalSkipped.length > 0 && (
-                  <div className="p-3 bg-gray-50 rounded-xl mb-4 flex-shrink-0">
-                    <div className="flex items-start gap-2 text-sm">
-                      <SkipForward className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="text-gray-600 font-medium mb-1">因每{selectedRuleForGenerate.cycleInterval}{selectedRuleForGenerate.cycleUnit === 'week' ? '周' : selectedRuleForGenerate.cycleUnit === 'month' ? '月' : '天'}间隔未排的日期：</div>
-                        <div className="flex flex-wrap gap-1">
-                          {generateResult.intervalSkipped.slice(0, 30).map(d => (
-                            <span key={d} className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">{d}</span>
-                          ))}
-                          {generateResult.intervalSkipped.length > 30 && (
-                            <span className="px-2 py-0.5 text-gray-400 text-xs">...等{generateResult.intervalSkipped.length}个</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                    <AlertTriangle className="w-7 h-7 text-amber-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-800">未生成场次</h3>
-                    <p className="text-sm text-gray-500">{selectedRuleForGenerate.name}</p>
-                  </div>
-                </div>
-                <div className="p-4 bg-amber-50 rounded-xl mb-4 text-sm text-amber-700">
-                  {generateResult.skipped.length > 0
-                    ? `所有${generateResult.skipped.length}个匹配日期均与现有场次冲突`
-                    : '在指定日期范围内没有匹配规则的日期，请检查周期设置。'}
-                </div>
-              </>
+            {generateResult.total === 0 && (
+              <div className="p-4 bg-amber-50 rounded-xl mb-4 text-sm text-amber-700 flex-shrink-0">
+                {generateResult.skipped.length > 0
+                  ? `所有${generateResult.skipped.length}个匹配日期均与现有场次冲突`
+                  : '在指定日期范围内没有匹配规则的日期，请检查周期设置。'}
+              </div>
             )}
+
+            <div className="p-4 bg-gray-50 rounded-xl space-y-3 mb-4 flex-shrink-0">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">规则匹配日期</span>
+                <span className="font-bold text-blue-600">{generateResult.matched.length} 个</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">成功生成场次</span>
+                <span className="font-bold text-green-600">{generateResult.total} 场</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">冲突跳过日期</span>
+                <span className="font-bold text-amber-600">{generateResult.skipped.length} 个</span>
+              </div>
+              {generateResult.intervalSkipped.length > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600 flex items-center gap-1">
+                    <SkipForward className="w-3.5 h-3.5" />
+                    间隔未排日期
+                  </span>
+                  <span className="font-bold text-gray-500">{generateResult.intervalSkipped.length} 个</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-4 mb-4 text-xs flex-shrink-0">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300" /> 生成成功</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> 冲突跳过</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-300" /> 间隔未排</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto mb-4">
+              {renderCalendar(
+                calendarViewMonth,
+                generateResult,
+                selectedRuleForGenerate.startDate,
+                selectedRuleForGenerate.endDate
+              )}
+            </div>
+
+            {generateResult.intervalSkipped.length > 0 && (
+              <div className="p-3 bg-gray-50 rounded-xl mb-4 flex-shrink-0">
+                <div className="flex items-start gap-2 text-sm">
+                  <SkipForward className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="text-gray-600 font-medium mb-1">因每{selectedRuleForGenerate.cycleInterval}{selectedRuleForGenerate.cycleUnit === 'week' ? '周' : selectedRuleForGenerate.cycleUnit === 'month' ? '月' : '天'}间隔未排的日期：</div>
+                    <div className="flex flex-wrap gap-1">
+                      {generateResult.intervalSkipped.slice(0, 30).map(d => (
+                        <span key={d} className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">{d}</span>
+                      ))}
+                      {generateResult.intervalSkipped.length > 30 && (
+                        <span className="px-2 py-0.5 text-gray-400 text-xs">...等{generateResult.intervalSkipped.length}个</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               onClick={() => {
                 setShowPreview(false);

@@ -1,5 +1,14 @@
 export type SeatStatus = 'available' | 'occupied' | 'selected' | 'disabled' | 'booked-private';
 
+export interface RemovedSeatAudit {
+  seatId: string;
+  seatLabel: string;
+  status: SeatStatus;
+  occupier?: string;
+  orderNo?: string;
+  removedAt: string;
+}
+
 export type SeatType = 'normal' | 'vip' | 'couple' | 'handicapped';
 
 export interface Seat {
@@ -47,6 +56,7 @@ export interface Session {
   privateCustomerId?: string;
   privateCustomerName?: string;
   generatedFromRuleId?: string;
+  removedSeatAudit?: RemovedSeatAudit[];
 }
 
 export interface PrivateCustomer {

@@ -314,14 +314,51 @@ export const ResourceManagementPage: React.FC = () => {
                 const newSeats = generateSeats(data.rows, data.cols);
                 const updatedHall = { ...data, seats: newSeats } as Hall;
 
-                if (layoutChanged) {
+                if (layoutChanged && oldHall) {
+                  const now = new Date();
                   const affectedSessions = sessions.filter(s =>
-                    s.hallId === editingItem.id && new Date(s.startTime) > new Date()
+                    s.hallId === editingItem.id && new Date(s.startTime) > now
                   );
-                  const soldSeats = affectedSessions.reduce((sum, s) =>
-                    sum + Object.values(s.seatStatus).filter(st => st === 'occupied' || st === 'booked-private').length, 0
-                  );
-                  const msg = `排数/座位数已变更，将影响该影厅 ${affectedSessions.length} 个未开场场次${soldSeats > 0 ? `（其中 ${soldSeats} 个已售座位将保留）` : ''}。是否确认同步新座位布局？`;
+                  const newSeatIds = new Set(newSeats.map(s => s.id));
+                  const oldSeatMap = new Map(oldHall.seats.map(s => [s.id, s]));
+                  let removedSoldSeats: Array<{ sessionId: string; movie: string; time: string; seat: string; occupier?: string }> = [];
+                  let preservedSoldCount = 0;
+
+                  for (const s of affectedSessions) {
+                    for (const seatId of Object.keys(s.seatStatus)) {
+                      const isSold = s.seatStatus[seatId] === 'occupied' || s.seatStatus[seatId] === 'booked-private';
+                      if (!isSold) continue;
+                      if (newSeatIds.has(seatId)) {
+                        preservedSoldCount++;
+                      } else {
+                        const seat = oldSeatMap.get(seatId);
+                        removedSoldSeats.push({
+                          sessionId: s.id,
+                          movie: s.movieTitle,
+                          time: new Date(s.startTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }),
+                          seat: seat?.label || seatId,
+                          occupier: s.seatOccupier?.[seatId]
+                        });
+                      }
+                    }
+                  }
+
+                  let msg = `将修改 ${oldHall.name} 座位布局（${oldHall.rows}×${oldHall.cols} → ${data.rows}×${data.cols}）\n\n`;
+                  msg += `影响范围：${affectedSessions.length} 个未开场场次\n`;
+                  msg += `保留已售座位：${preservedSoldCount} 个\n`;
+                  msg += `被移除的已售座位：${removedSoldSeats.length} 个（将保留追溯记录）\n\n`;
+                  if (removedSoldSeats.length > 0) {
+                    msg += `被移除座位明细：\n`;
+                    removedSoldSeats.slice(0, 8).forEach(r => {
+                      msg += `  · ${r.time} 《${r.movie}》 ${r.seat}${r.occupier ? ` (${r.occupier})` : ''}\n`;
+                    });
+                    if (removedSoldSeats.length > 8) {
+                      msg += `  ... 还有 ${removedSoldSeats.length - 8} 个未列出\n`;
+                    }
+                    msg += `\n`;
+                  }
+                  msg += `确认同步新座位布局？`;
+
                   if (confirm(msg)) {
                     updateHallWithSeatSync(updatedHall);
                   } else {

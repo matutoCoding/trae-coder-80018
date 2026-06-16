@@ -27,6 +27,7 @@ export const SeatBookingPage: React.FC = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [dashboardHallFilter, setDashboardHallFilter] = useState<string>('');
+  const [dashboardRange, setDashboardRange] = useState<'today' | '7days'>('7days');
 
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
@@ -122,8 +123,11 @@ export const SeatBookingPage: React.FC = () => {
 
   const dashboardData = useMemo(() => {
     const rangeStart = startOfDay(selectedDate);
-    const rangeEnd = addDays(rangeStart, 6);
-    const dateRange = Array.from({ length: 7 }, (_, i) => addDays(rangeStart, i));
+    const rangeEnd = dashboardRange === 'today'
+      ? startOfDay(selectedDate)
+      : addDays(rangeStart, 6);
+    const rangeDays = dashboardRange === 'today' ? 1 : 7;
+    const dateRange = Array.from({ length: rangeDays }, (_, i) => addDays(rangeStart, i));
 
     const rangeSessions = sessions.filter(s => {
       const d = new Date(s.startTime);
@@ -142,20 +146,23 @@ export const SeatBookingPage: React.FC = () => {
 
     const sessionIds = new Set(rangeSessions.map(s => s.id));
     const rangeOrders = orders.filter(o =>
-      o.status === 'paid' &&
+      o.status !== 'cancelled' &&
       o.tickets.some(t => sessionIds.has(t.sessionId))
     );
-    const salesAmount = rangeOrders.reduce((sum, o) => sum + o.finalTotal, 0);
+    const rangeOrderIds = new Set(rangeOrders.map(o => o.id));
+    const salesAmount = rangeOrders.filter(o => o.status === 'paid').reduce((sum, o) => sum + o.finalTotal, 0);
 
     const rangeRefunds = refundRecords.filter(r => {
       const d = new Date(r.createdAt);
-      return isWithinInterval(d, { start: rangeStart, end: addDays(rangeEnd, 1) });
+      return isWithinInterval(d, { start: rangeStart, end: addDays(rangeEnd, 1) })
+        && rangeOrderIds.has(r.orderId);
     });
     const refundAmount = rangeRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
 
     const rangeChanges = changeRecords.filter(r => {
       const d = new Date(r.createdAt);
-      return isWithinInterval(d, { start: rangeStart, end: addDays(rangeEnd, 1) });
+      return isWithinInterval(d, { start: rangeStart, end: addDays(rangeEnd, 1) })
+        && (rangeOrderIds.has(r.fromOrderId) || rangeOrderIds.has(r.toOrderId));
     });
     const changeDiff = rangeChanges.reduce((sum, r) => sum + r.priceDifference, 0);
 
@@ -216,19 +223,46 @@ export const SeatBookingPage: React.FC = () => {
                 <BarChart3 className="w-5 h-5 text-indigo-600" />
                 <h2 className="text-lg font-bold text-gray-800">经营看板</h2>
                 <span className="text-sm text-gray-500 ml-2">
-                  {format(selectedDate, 'MM/dd')} ~ {format(addDays(selectedDate, 6), 'MM/dd')}
+                  {dashboardRange === 'today'
+                    ? format(selectedDate, 'yyyy年MM月dd日')
+                    : `${format(selectedDate, 'MM/dd')} ~ ${format(addDays(selectedDate, 6), 'MM/dd')}`
+                  }
                 </span>
               </div>
-              <select
-                value={dashboardHallFilter}
-                onChange={(e) => setDashboardHallFilter(e.target.value)}
-                className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm"
-              >
-                <option value="">全部影厅</option>
-                {halls.map(h => (
-                  <option key={h.id} value={h.id}>{h.name}</option>
-                ))}
-              </select>
+              <div className="flex items-center gap-2">
+                <div className="flex bg-gray-100 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setDashboardRange('today')}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                      dashboardRange === 'today'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    今天
+                  </button>
+                  <button
+                    onClick={() => setDashboardRange('7days')}
+                    className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                      dashboardRange === '7days'
+                        ? 'bg-white text-indigo-600 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    近7天
+                  </button>
+                </div>
+                <select
+                  value={dashboardHallFilter}
+                  onChange={(e) => setDashboardHallFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm"
+                >
+                  <option value="">全部影厅</option>
+                  {halls.map(h => (
+                    <option key={h.id} value={h.id}>{h.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">

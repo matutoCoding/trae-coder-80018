@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   Hall, Session, Movie, PrivateCustomer, CycleRule,
-  Discount, Member, Order, RefundRecord, ChangeRecord
+  Discount, Member, Order, RefundRecord, ChangeRecord, RemovedSeatAudit
 } from '@/types';
 import type { CycleGenerateResult } from '@/utils/cycleGenerator';
 import { generateMockData } from '@/data/mockData';
@@ -163,16 +163,44 @@ export const useAppStore = create<AppState>((set, get) => {
       let updatedSessions = state.sessions;
 
       if (layoutChanged) {
+        const now = new Date();
         const newSeatIds = new Set(hall.seats.map(s => s.id));
+        const oldSeatMap = new Map(oldHall.seats.map(s => [s.id, s]));
+        const removedAt = now.toISOString();
+
+        const sessionToOrderNos = new Map<string, string>();
+        for (const order of state.orders) {
+          for (const t of order.tickets) {
+            sessionToOrderNos.set(t.sessionId + '::' + t.seatId, order.orderNo);
+          }
+        }
+
         updatedSessions = state.sessions.map(s => {
           if (s.hallId !== hall.id) return s;
+          const isFuture = new Date(s.startTime) > now;
+          if (!isFuture) return s;
+
           const newSeatStatus: Record<string, any> = {};
           const newSeatOccupier: Record<string, string> = {};
+          const removedAudits: RemovedSeatAudit[] = [];
+
           for (const seatId of Object.keys(s.seatStatus)) {
             if (newSeatIds.has(seatId)) {
               newSeatStatus[seatId] = s.seatStatus[seatId];
               if (s.seatOccupier?.[seatId]) {
                 newSeatOccupier[seatId] = s.seatOccupier[seatId];
+              }
+            } else {
+              const seat = oldSeatMap.get(seatId);
+              if (seat && (s.seatStatus[seatId] === 'occupied' || s.seatStatus[seatId] === 'booked-private')) {
+                removedAudits.push({
+                  seatId,
+                  seatLabel: seat.label,
+                  status: s.seatStatus[seatId],
+                  occupier: s.seatOccupier?.[seatId],
+                  orderNo: sessionToOrderNos.get(s.id + '::' + seatId),
+                  removedAt
+                });
               }
             }
           }
@@ -181,10 +209,15 @@ export const useAppStore = create<AppState>((set, get) => {
               newSeatStatus[seat.id] = 'available';
             }
           }
+
+          const prevAudits = s.removedSeatAudit || [];
+          const mergedAudits = removedAudits.length > 0 ? [...prevAudits, ...removedAudits] : prevAudits;
+
           return {
             ...s,
             seatStatus: newSeatStatus,
-            seatOccupier: Object.keys(newSeatOccupier).length ? newSeatOccupier : undefined
+            seatOccupier: Object.keys(newSeatOccupier).length ? newSeatOccupier : undefined,
+            removedSeatAudit: mergedAudits.length > 0 ? mergedAudits : undefined
           };
         });
       }

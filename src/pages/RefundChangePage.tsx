@@ -215,13 +215,32 @@ export const RefundChangePage: React.FC = () => {
   const handleExportRefundChange = () => {
     const today = startOfDay(new Date());
 
-    const header = '类型,订单号,关联订单号,金额/差价,原因,操作人,操作时间';
-    const refundRows = refundRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r =>
-      `退款,${r.orderNo},,${r.refundAmount},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`
-    );
-    const changeRows = changeRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r =>
-      `改签,${r.toOrderNo},${r.fromOrderNo},${r.priceDifference},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`
-    );
+    const header = '类型,订单号,关联订单号,影片,影厅,座位,原价,实付金额,状态,金额/差价,原因,操作人,操作时间';
+
+    const getOrderContext = (orderId: string) => {
+      const order = orders.find(o => o.id === orderId);
+      if (!order) return { movie: '', hall: '', seats: '', originalTotal: 0, finalTotal: 0, status: '' };
+      const session = sessions.find(s => s.id === order.tickets[0]?.sessionId);
+      return {
+        movie: session?.movieTitle || '',
+        hall: session?.hallName || '',
+        seats: order.tickets.map(t => t.seatLabel).join(' '),
+        originalTotal: order.originalTotal,
+        finalTotal: order.finalTotal,
+        status: statusLabels[order.status]
+      };
+    };
+
+    const refundRows = refundRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r => {
+      const ctx = getOrderContext(r.orderId);
+      return `退款,${r.orderNo},,${ctx.movie},${ctx.hall},${ctx.seats},${ctx.originalTotal},${ctx.finalTotal},${ctx.status},${r.refundAmount},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`;
+    });
+
+    const changeRows = changeRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r => {
+      const ctx = getOrderContext(r.toOrderId);
+      const diffStr = r.priceDifference >= 0 ? `+${r.priceDifference}` : `${r.priceDifference}`;
+      return `改签,${r.toOrderNo},${r.fromOrderNo},${ctx.movie},${ctx.hall},${ctx.seats},${ctx.originalTotal},${ctx.finalTotal},${ctx.status},${diffStr},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`;
+    });
 
     downloadCsv(`退改签导出_${format(today, 'yyyyMMdd')}.csv`, [header, ...refundRows, ...changeRows].join('\n'));
   };
