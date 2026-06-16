@@ -3,6 +3,7 @@ import type {
   Hall, Session, Movie, PrivateCustomer, CycleRule,
   Discount, Member, Order, RefundRecord, ChangeRecord
 } from '@/types';
+import type { CycleGenerateResult } from '@/utils/cycleGenerator';
 import { generateMockData } from '@/data/mockData';
 
 const STORAGE_KEY = 'cinema-ticket-system-data';
@@ -30,7 +31,8 @@ function saveToStorage(state: AppState) {
       members: state.members,
       orders: state.orders,
       refundRecords: state.refundRecords,
-      changeRecords: state.changeRecords
+      changeRecords: state.changeRecords,
+      lastGenerateResults: state.lastGenerateResults
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   } catch {}
@@ -49,13 +51,16 @@ interface AppState {
   changeRecords: ChangeRecord[];
   currentHallId: string | null;
   currentSessionId: string | null;
+  lastGenerateResults: Record<string, { result: CycleGenerateResult; ruleName: string; generatedAt: string }>;
 
   setCurrentHall: (id: string | null) => void;
   setCurrentSession: (id: string | null) => void;
+  saveGenerateResult: (ruleId: string, result: CycleGenerateResult, ruleName: string) => void;
 
   addHall: (hall: Hall) => void;
   updateHall: (hall: Hall) => void;
   deleteHall: (id: string) => void;
+  updateHallWithSeatSync: (hall: Hall) => void;
 
   addSession: (session: Session) => void;
   updateSession: (session: Session) => void;
@@ -104,7 +109,8 @@ function getInitialState() {
       refundRecords: saved.refundRecords || [],
       changeRecords: saved.changeRecords || [],
       currentHallId: saved.halls[0]?.id || null,
-      currentSessionId: null
+      currentSessionId: null,
+      lastGenerateResults: saved.lastGenerateResults || {}
     };
   }
   const mock = generateMockData();
@@ -120,7 +126,8 @@ function getInitialState() {
     refundRecords: mock.refundRecords,
     changeRecords: mock.changeRecords,
     currentHallId: mock.halls[0]?.id || null,
-    currentSessionId: null
+    currentSessionId: null,
+    lastGenerateResults: {}
   };
 }
 
@@ -138,8 +145,55 @@ export const useAppStore = create<AppState>((set, get) => {
     setCurrentHall: (id) => set({ currentHallId: id }),
     setCurrentSession: (id) => set({ currentSessionId: id }),
 
+    saveGenerateResult: (ruleId, result, ruleName) => persist({
+      lastGenerateResults: {
+        ...get().lastGenerateResults,
+        [ruleId]: { result, ruleName, generatedAt: new Date().toISOString() }
+      }
+    }),
+
     addHall: (hall) => persist({ halls: [...get().halls, hall] }),
     updateHall: (hall) => persist({ halls: get().halls.map((h) => (h.id === hall.id ? hall : h)) }),
+    updateHallWithSeatSync: (hall) => {
+      const state = get();
+      const oldHall = state.halls.find(h => h.id === hall.id);
+      if (!oldHall) { persist({ halls: state.halls.map(h => h.id === hall.id ? hall : h) }); return; }
+
+      const layoutChanged = oldHall.rows !== hall.rows || oldHall.cols !== hall.cols;
+      let updatedSessions = state.sessions;
+
+      if (layoutChanged) {
+        const newSeatIds = new Set(hall.seats.map(s => s.id));
+        updatedSessions = state.sessions.map(s => {
+          if (s.hallId !== hall.id) return s;
+          const newSeatStatus: Record<string, any> = {};
+          const newSeatOccupier: Record<string, string> = {};
+          for (const seatId of Object.keys(s.seatStatus)) {
+            if (newSeatIds.has(seatId)) {
+              newSeatStatus[seatId] = s.seatStatus[seatId];
+              if (s.seatOccupier?.[seatId]) {
+                newSeatOccupier[seatId] = s.seatOccupier[seatId];
+              }
+            }
+          }
+          for (const seat of hall.seats) {
+            if (!newSeatStatus[seat.id]) {
+              newSeatStatus[seat.id] = 'available';
+            }
+          }
+          return {
+            ...s,
+            seatStatus: newSeatStatus,
+            seatOccupier: Object.keys(newSeatOccupier).length ? newSeatOccupier : undefined
+          };
+        });
+      }
+
+      persist({
+        halls: state.halls.map(h => h.id === hall.id ? hall : h),
+        sessions: updatedSessions
+      });
+    },
     deleteHall: (id) => persist({
       halls: get().halls.filter((h) => h.id !== id),
       currentHallId: get().currentHallId === id ? (get().halls.find(h => h.id !== id)?.id || null) : get().currentHallId

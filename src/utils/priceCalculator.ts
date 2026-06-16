@@ -31,8 +31,7 @@ export function calculatePrice(params: CalculateParams): CalculateResult {
   let hasNegativeProtection = false;
   let step = 1;
 
-  const isMorningSession = session?.type === 'morning' ||
-    (session && new Date(session.startTime).getHours() < 12);
+  const isMorningSession = session?.type === 'morning';
 
   const orderedDiscounts = discountOrder
     .map(id => discounts.find(d => d.id === id && d.isActive))

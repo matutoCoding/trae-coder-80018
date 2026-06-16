@@ -1,26 +1,40 @@
 import React, { useState, useMemo } from 'react';
 import {
   Plus, Edit2, Trash2, Play, Calendar, RefreshCw,
-  Users, Building2, Film, MapPin, Clock, AlertTriangle, CheckCircle
+  Users, Building2, Film, MapPin, Clock, AlertTriangle, CheckCircle, Eye, SkipForward
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { SeatMap } from '@/components/SeatMap';
 import { generateSessionsFromRule, formatDate, getWeekDayNames } from '@/utils/cycleGenerator';
 import type { CycleRule, CycleUnit } from '@/types';
+import type { CycleGenerateResult } from '@/utils/cycleGenerator';
 import { generateId } from '@/data/mockData';
-import { format } from 'date-fns';
+import {
+  format, startOfMonth, endOfMonth, eachDayOfInterval,
+  getDay, isSameMonth, isBefore, isAfter, startOfDay, addDays
+} from 'date-fns';
 
 export const CycleRulePage: React.FC = () => {
   const {
     cycleRules, halls, movies, privateCustomers, sessions,
-    addCycleRule, updateCycleRule, deleteCycleRule, batchAddSessions
+    addCycleRule, updateCycleRule, deleteCycleRule, batchAddSessions,
+    lastGenerateResults, saveGenerateResult
   } = useAppStore();
 
   const [showModal, setShowModal] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [editingRule, setEditingRule] = useState<CycleRule | null>(null);
   const [selectedRuleForGenerate, setSelectedRuleForGenerate] = useState<CycleRule | null>(null);
-  const [generateResult, setGenerateResult] = useState<{ total: number; skipped: string[]; matched: string[] } | null>(null);
+  const [generateResult, setGenerateResult] = useState<{
+    total: number;
+    skipped: string[];
+    matched: string[];
+    intervalSkipped: string[];
+  } | null>(null);
+
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyRuleId, setHistoryRuleId] = useState<string | null>(null);
+  const [calendarViewMonth, setCalendarViewMonth] = useState<Date>(new Date());
 
   const emptyForm: Omit<CycleRule, 'id' | 'createdAt'> = {
     name: '',
@@ -139,12 +153,28 @@ export const CycleRulePage: React.FC = () => {
 
     const result = generateSessionsFromRule(rule, hall, sessions);
     setSelectedRuleForGenerate(rule);
-    setGenerateResult({ total: result.totalGenerated, skipped: result.skippedDates, matched: result.matchedDates });
+    setGenerateResult({
+      total: result.totalGenerated,
+      skipped: result.skippedDates,
+      matched: result.matchedDates,
+      intervalSkipped: result.intervalSkippedDates
+    });
+    setCalendarViewMonth(new Date(rule.startDate + 'T00:00:00'));
     setShowPreview(true);
 
     if (result.totalGenerated > 0) {
       batchAddSessions(result.sessions);
     }
+    saveGenerateResult(rule.id, result, rule.name);
+  };
+
+  const handleViewHistory = (ruleId: string) => {
+    setHistoryRuleId(ruleId);
+    const entry = lastGenerateResults[ruleId];
+    if (entry) {
+      setCalendarViewMonth(new Date(entry.result.matchedDates[0] || Date.now()));
+    }
+    setShowHistoryModal(true);
   };
 
   const weekDayOptions = [
@@ -156,6 +186,85 @@ export const CycleRulePage: React.FC = () => {
     { value: 5, label: '五' },
     { value: 6, label: '六' },
   ];
+
+  const getDateColor = (dateStr: string, data: { matched: string[]; skipped: string[]; intervalSkipped: string[] }) => {
+    if (data.skipped.includes(dateStr)) return 'conflict';
+    if (data.matched.includes(dateStr)) return 'generated';
+    if (data.intervalSkipped.includes(dateStr)) return 'interval-skip';
+    return 'none';
+  };
+
+  const renderCalendar = (
+    monthDate: Date,
+    data: { matched: string[]; skipped: string[]; intervalSkipped: string[] },
+    ruleStartDate: string,
+    ruleEndDate: string
+  ) => {
+    const monthStart = startOfMonth(monthDate);
+    const monthEnd = endOfMonth(monthDate);
+    const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+    const startDay = getDay(monthStart);
+    const ruleStart = startOfDay(new Date(ruleStartDate + 'T00:00:00'));
+    const ruleEnd = startOfDay(new Date(ruleEndDate + 'T00:00:00'));
+
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => setCalendarViewMonth(addDays(monthStart, -1))}
+            className="p-1.5 rounded-lg hover:bg-gray-100"
+          >
+            ←
+          </button>
+          <span className="font-medium text-gray-800">{format(monthDate, 'yyyy年MM月')}</span>
+          <button
+            onClick={() => setCalendarViewMonth(addDays(monthEnd, 1))}
+            className="p-1.5 rounded-lg hover:bg-gray-100"
+          >
+            →
+          </button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center mb-1">
+          {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+            <div key={d} className="text-xs text-gray-400 py-1">{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {Array.from({ length: startDay }).map((_, i) => (
+            <div key={`empty-${i}`} />
+          ))}
+          {days.map(day => {
+            const dateStr = format(day, 'yyyy-MM-dd');
+            const inRange = !isBefore(day, ruleStart) && !isAfter(day, ruleEnd);
+            const colorType = inRange ? getDateColor(dateStr, data) : 'none';
+            return (
+              <div
+                key={dateStr}
+                className={`
+                  relative text-center py-1.5 rounded-lg text-xs font-medium
+                  ${!inRange ? 'text-gray-300' : ''}
+                  ${colorType === 'generated' ? 'bg-green-100 text-green-700' : ''}
+                  ${colorType === 'conflict' ? 'bg-amber-100 text-amber-700 line-through' : ''}
+                  ${colorType === 'interval-skip' ? 'bg-gray-100 text-gray-400' : ''}
+                  ${colorType === 'none' && inRange ? 'text-gray-500' : ''}
+                `}
+                title={
+                  colorType === 'generated' ? '已生成场次' :
+                  colorType === 'conflict' ? '冲突跳过' :
+                  colorType === 'interval-skip' ? '间隔未排' : ''
+                }
+              >
+                {format(day, 'd')}
+                {colorType === 'interval-skip' && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-gray-300 rounded-full" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="p-6 h-full overflow-y-auto">
@@ -176,6 +285,7 @@ export const CycleRulePage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
         {cycleRules.map(rule => {
           const relatedSessions = sessions.filter(s => s.generatedFromRuleId === rule.id);
+          const hasHistory = !!lastGenerateResults[rule.id];
           return (
             <div key={rule.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="p-5 border-b border-gray-100">
@@ -240,6 +350,15 @@ export const CycleRulePage: React.FC = () => {
                   <Play className="w-4 h-4" />
                   批量生成
                 </button>
+                {hasHistory && (
+                  <button
+                    onClick={() => handleViewHistory(rule.id)}
+                    className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                    title="查看最近生成明细"
+                  >
+                    <Eye className="w-4 h-4 text-blue-500" />
+                  </button>
+                )}
                 <button
                   onClick={() => handleOpenEdit(rule)}
                   className="px-3 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -500,7 +619,7 @@ export const CycleRulePage: React.FC = () => {
 
       {showPreview && selectedRuleForGenerate && generateResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] flex flex-col">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
             {generateResult.total > 0 ? (
               <>
                 <div className="flex items-center gap-3 mb-4">
@@ -525,45 +644,50 @@ export const CycleRulePage: React.FC = () => {
                     <span className="text-gray-600">冲突跳过日期</span>
                     <span className="font-bold text-amber-600">{generateResult.skipped.length} 个</span>
                   </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-3 mb-4">
-                  {generateResult.matched.length > 0 && (
-                    <div>
-                      <div className="text-sm font-medium text-gray-700 mb-2">匹配日期列表</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {generateResult.matched.map(d => {
-                          const isSkipped = generateResult.skipped.includes(d);
-                          return (
-                            <span key={d} className={`px-2 py-1 rounded text-xs ${
-                              isSkipped
-                                ? 'bg-amber-100 text-amber-700 line-through'
-                                : 'bg-green-100 text-green-700'
-                            }`}>
-                              {d}
-                            </span>
-                          );
-                        })}
-                      </div>
+                  {generateResult.intervalSkipped.length > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600 flex items-center gap-1">
+                        <SkipForward className="w-3.5 h-3.5" />
+                        间隔未排日期
+                      </span>
+                      <span className="font-bold text-gray-500">{generateResult.intervalSkipped.length} 个</span>
                     </div>
                   )}
+                </div>
 
-                  {generateResult.skipped.length > 0 && (
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
-                      <div className="flex items-start gap-2 text-sm">
-                        <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-amber-700 font-medium mb-1">以下日期因场次冲突被跳过：</div>
-                          <div className="flex flex-wrap gap-1">
-                            {generateResult.skipped.map(d => (
-                              <span key={d} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">{d}</span>
-                            ))}
-                          </div>
+                <div className="flex gap-4 mb-4 text-xs flex-shrink-0">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300" /> 生成成功</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> 冲突跳过</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-300" /> 间隔未排</span>
+                </div>
+
+                <div className="flex-1 overflow-y-auto mb-4">
+                  {renderCalendar(
+                    calendarViewMonth,
+                    generateResult,
+                    selectedRuleForGenerate.startDate,
+                    selectedRuleForGenerate.endDate
+                  )}
+                </div>
+
+                {generateResult.intervalSkipped.length > 0 && (
+                  <div className="p-3 bg-gray-50 rounded-xl mb-4 flex-shrink-0">
+                    <div className="flex items-start gap-2 text-sm">
+                      <SkipForward className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="text-gray-600 font-medium mb-1">因每{selectedRuleForGenerate.cycleInterval}{selectedRuleForGenerate.cycleUnit === 'week' ? '周' : selectedRuleForGenerate.cycleUnit === 'month' ? '月' : '天'}间隔未排的日期：</div>
+                        <div className="flex flex-wrap gap-1">
+                          {generateResult.intervalSkipped.slice(0, 30).map(d => (
+                            <span key={d} className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">{d}</span>
+                          ))}
+                          {generateResult.intervalSkipped.length > 30 && (
+                            <span className="px-2 py-0.5 text-gray-400 text-xs">...等{generateResult.intervalSkipped.length}个</span>
+                          )}
                         </div>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -581,16 +705,6 @@ export const CycleRulePage: React.FC = () => {
                     ? `所有${generateResult.skipped.length}个匹配日期均与现有场次冲突`
                     : '在指定日期范围内没有匹配规则的日期，请检查周期设置。'}
                 </div>
-                {generateResult.matched.length > 0 && (
-                  <div className="p-3 bg-gray-50 rounded-xl mb-4">
-                    <div className="text-sm text-gray-600 mb-2">规则匹配但全部冲突的日期：</div>
-                    <div className="flex flex-wrap gap-1">
-                      {generateResult.matched.map(d => (
-                        <span key={d} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs line-through">{d}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </>
             )}
             <button
@@ -606,6 +720,94 @@ export const CycleRulePage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {showHistoryModal && historyRuleId && lastGenerateResults[historyRuleId] && (() => {
+        const entry = lastGenerateResults[historyRuleId];
+        const rule = cycleRules.find(r => r.id === historyRuleId);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800">最近生成明细</h3>
+                  <p className="text-sm text-gray-500">{entry.ruleName} · {format(new Date(entry.generatedAt), 'yyyy-MM-dd HH:mm')}</p>
+                </div>
+                <button onClick={() => setShowHistoryModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-4 bg-gray-50 rounded-xl space-y-2 mb-4 text-sm flex-shrink-0">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">匹配日期</span>
+                  <span className="font-bold text-blue-600">{entry.result.matchedDates.length} 个</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">成功生成</span>
+                  <span className="font-bold text-green-600">{entry.result.totalGenerated} 场</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">冲突跳过</span>
+                  <span className="font-bold text-amber-600">{entry.result.skippedDates.length} 个</span>
+                </div>
+                {entry.result.intervalSkippedDates.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">间隔未排</span>
+                    <span className="font-bold text-gray-500">{entry.result.intervalSkippedDates.length} 个</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-4 mb-4 text-xs flex-shrink-0">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 border border-green-300" /> 生成成功</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100 border border-amber-300" /> 冲突跳过</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-100 border border-gray-300" /> 间隔未排</span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto mb-4">
+                {rule && renderCalendar(
+                  calendarViewMonth,
+                  {
+                    matched: entry.result.matchedDates,
+                    skipped: entry.result.skippedDates,
+                    intervalSkipped: entry.result.intervalSkippedDates
+                  },
+                  rule.startDate,
+                  rule.endDate
+                )}
+              </div>
+
+              {entry.result.intervalSkippedDates.length > 0 && rule && (
+                <div className="p-3 bg-gray-50 rounded-xl mb-4 flex-shrink-0">
+                  <div className="flex items-start gap-2 text-sm">
+                    <SkipForward className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="text-gray-600 font-medium mb-1">因每{rule.cycleInterval}{rule.cycleUnit === 'week' ? '周' : rule.cycleUnit === 'month' ? '月' : '天'}间隔未排的日期：</div>
+                      <div className="flex flex-wrap gap-1">
+                        {entry.result.intervalSkippedDates.slice(0, 30).map((d: string) => (
+                          <span key={d} className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">{d}</span>
+                        ))}
+                        {entry.result.intervalSkippedDates.length > 30 && (
+                          <span className="px-2 py-0.5 text-gray-400 text-xs">...等{entry.result.intervalSkippedDates.length}个</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="w-full py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 flex-shrink-0"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

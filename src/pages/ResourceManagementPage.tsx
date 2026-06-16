@@ -11,8 +11,8 @@ type TabKey = 'halls' | 'movies' | 'customers' | 'members';
 
 export const ResourceManagementPage: React.FC = () => {
   const {
-    halls, movies, privateCustomers, members,
-    addHall, updateHall, deleteHall,
+    halls, movies, privateCustomers, members, sessions,
+    addHall, updateHall, updateHallWithSeatSync, deleteHall,
     addMovie, updateMovie, deleteMovie,
     addPrivateCustomer, updatePrivateCustomer, deletePrivateCustomer,
     addMember, updateMember, deleteMember
@@ -308,8 +308,31 @@ export const ResourceManagementPage: React.FC = () => {
           }}
           onSubmit={(data) => {
             if (activeTab === 'halls') {
-              if (editingItem) updateHall(data as Hall);
-              else addHall({ ...data as Hall, seats: generateSeats(data.rows, data.cols) });
+              if (editingItem) {
+                const oldHall = halls.find(h => h.id === editingItem.id);
+                const layoutChanged = oldHall && (oldHall.rows !== data.rows || oldHall.cols !== data.cols);
+                const newSeats = generateSeats(data.rows, data.cols);
+                const updatedHall = { ...data, seats: newSeats } as Hall;
+
+                if (layoutChanged) {
+                  const affectedSessions = sessions.filter(s =>
+                    s.hallId === editingItem.id && new Date(s.startTime) > new Date()
+                  );
+                  const soldSeats = affectedSessions.reduce((sum, s) =>
+                    sum + Object.values(s.seatStatus).filter(st => st === 'occupied' || st === 'booked-private').length, 0
+                  );
+                  const msg = `排数/座位数已变更，将影响该影厅 ${affectedSessions.length} 个未开场场次${soldSeats > 0 ? `（其中 ${soldSeats} 个已售座位将保留）` : ''}。是否确认同步新座位布局？`;
+                  if (confirm(msg)) {
+                    updateHallWithSeatSync(updatedHall);
+                  } else {
+                    return;
+                  }
+                } else {
+                  updateHall(updatedHall);
+                }
+              } else {
+                addHall({ ...data as Hall, seats: generateSeats(data.rows, data.cols) });
+              }
             } else if (activeTab === 'movies') {
               if (editingItem) updateMovie(data as Movie);
               else addMovie(data as Movie);

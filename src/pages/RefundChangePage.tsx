@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Search, RefreshCw, FileText, Undo2, ArrowRightLeft,
   Clock, MapPin, Film, Phone, User, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, XCircle, Ticket, Calendar
+  AlertTriangle, CheckCircle, XCircle, Ticket, Calendar, Download
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { SessionCard } from '@/components/SessionCard';
@@ -11,6 +11,19 @@ import type { Order, OrderStatus, OrderTicket } from '@/types';
 import { formatDateTime, formatDate } from '@/utils/cycleGenerator';
 import { formatPrice, calculatePrice, getDefaultDiscountOrder } from '@/utils/priceCalculator';
 import { generateId, generateOrderNo } from '@/data/mockData';
+import { format, isSameDay, startOfDay, endOfDay } from 'date-fns';
+
+const BOM = '\uFEFF';
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([BOM + content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const statusColors: Record<OrderStatus, string> = {
   pending: 'bg-amber-100 text-amber-700',
@@ -178,6 +191,41 @@ export const RefundChangePage: React.FC = () => {
     changeDiff: changeRecords.reduce((sum, r) => sum + r.priceDifference, 0)
   }), [orders, refundRecords, changeRecords]);
 
+  const handleExportOrders = () => {
+    const today = startOfDay(new Date());
+    const todayOrders = orders.filter(o => {
+      const d = new Date(o.createdAt);
+      return isSameDay(d, today);
+    });
+
+    const header = '订单号,影片,影厅,座位,原价,实付金额,状态,操作时间';
+    const rows = todayOrders.map(o => {
+      const session = sessions.find(s => s.id === o.tickets[0]?.sessionId);
+      const movie = session?.movieTitle || '';
+      const hall = session?.hallName || '';
+      const seats = o.tickets.map(t => t.seatLabel).join(' ');
+      const status = statusLabels[o.status];
+      const time = formatDateTime(o.paidAt || o.createdAt);
+      return `${o.orderNo},${movie},${hall},${seats},${o.originalTotal},${o.finalTotal},${status},${time}`;
+    });
+
+    downloadCsv(`订单导出_${format(today, 'yyyyMMdd')}.csv`, [header, ...rows].join('\n'));
+  };
+
+  const handleExportRefundChange = () => {
+    const today = startOfDay(new Date());
+
+    const header = '类型,订单号,关联订单号,金额/差价,原因,操作人,操作时间';
+    const refundRows = refundRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r =>
+      `退款,${r.orderNo},,${r.refundAmount},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`
+    );
+    const changeRows = changeRecords.filter(r => isSameDay(new Date(r.createdAt), today)).map(r =>
+      `改签,${r.toOrderNo},${r.fromOrderNo},${r.priceDifference},${r.reason},${r.operator},${formatDateTime(r.createdAt)}`
+    );
+
+    downloadCsv(`退改签导出_${format(today, 'yyyyMMdd')}.csv`, [header, ...refundRows, ...changeRows].join('\n'));
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 border-b border-gray-200">
@@ -276,6 +324,20 @@ export const RefundChangePage: React.FC = () => {
                   <option key={key} value={key}>{label}</option>
                 ))}
               </select>
+              <button
+                onClick={handleExportOrders}
+                className="flex items-center gap-1.5 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                导出当天订单
+              </button>
+              <button
+                onClick={handleExportRefundChange}
+                className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                导出退改签
+              </button>
             </div>
           )}
         </div>

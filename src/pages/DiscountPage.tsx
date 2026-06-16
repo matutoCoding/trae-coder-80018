@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { calculatePrice, formatPrice, getDefaultDiscountOrder } from '@/utils/priceCalculator';
-import type { Discount, DiscountType } from '@/types';
+import type { Discount, DiscountType, Session } from '@/types';
 import { generateId } from '@/data/mockData';
 
 const discountTypeLabels: Record<DiscountType, string> = {
@@ -36,13 +36,23 @@ export const DiscountPage: React.FC = () => {
   const [calcOriginalTotal, setCalcOriginalTotal] = useState(300);
   const [calcTicketCount, setCalcTicketCount] = useState(4);
   const [calcMemberId, setCalcMemberId] = useState<string | undefined>(members[0]?.id);
-  const [calcSessionType, setCalcSessionType] = useState<'morning' | 'normal'>('morning');
+  const [calcSessionType, setCalcSessionType] = useState<'morning' | 'normal' | 'private' | 'midnight'>('morning');
 
-  const calcSession = useMemo(() => {
-    if (calcSessionType === 'morning') {
-      return sessions.find(s => s.type === 'morning' || new Date(s.startTime).getHours() < 12);
-    }
-    return sessions.find(s => s.type !== 'morning' && new Date(s.startTime).getHours() >= 12);
+  const calcSession = useMemo((): Session | undefined => {
+    const real = sessions.find(s => s.type === calcSessionType);
+    if (real) return real;
+    return {
+      id: '__calc_virtual__',
+      hallId: '',
+      movieId: '',
+      movieTitle: '',
+      hallName: '',
+      startTime: calcSessionType === 'morning' ? '2026-01-01T10:00:00' : '2026-01-01T15:00:00',
+      endTime: calcSessionType === 'morning' ? '2026-01-01T12:00:00' : '2026-01-01T17:00:00',
+      type: calcSessionType,
+      basePrice: 50,
+      seatStatus: {}
+    };
   }, [calcSessionType, sessions]);
 
   const emptyForm: Omit<Discount, 'id'> = {
@@ -202,11 +212,13 @@ export const DiscountPage: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">场次类型</label>
                 <select
                   value={calcSessionType}
-                  onChange={(e) => setCalcSessionType(e.target.value as 'morning' | 'normal')}
+                  onChange={(e) => setCalcSessionType(e.target.value as any)}
                   className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="morning">早场（12点前）— 可享早场立减</option>
-                  <option value="normal">普通场次（12点后）— 不享早场立减</option>
+                  <option value="morning">早场 — 可享早场立减</option>
+                  <option value="normal">普通场次 — 不享早场立减</option>
+                  <option value="private">包场 — 不享早场立减</option>
+                  <option value="midnight">午夜场 — 不享早场立减</option>
                 </select>
               </div>
             </div>
