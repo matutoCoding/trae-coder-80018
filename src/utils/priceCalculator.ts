@@ -31,54 +31,56 @@ export function calculatePrice(params: CalculateParams): CalculateResult {
   let hasNegativeProtection = false;
   let step = 1;
 
+  const isMorningSession = session?.type === 'morning' ||
+    (session && new Date(session.startTime).getHours() < 12);
+
   const orderedDiscounts = discountOrder
     .map(id => discounts.find(d => d.id === id && d.isActive))
     .filter(Boolean) as Discount[];
 
   const unorderedDiscounts = discounts.filter(
-    d => d.isActive && !discountOrder.includes(d.id) && d.type !== 'member-discount'
+    d => d.isActive && !discountOrder.includes(d.id)
   ).sort((a, b) => a.priority - b.priority);
 
   const allDiscounts = [...orderedDiscounts, ...unorderedDiscounts];
-
-  const memberDiscount = discounts.find(d => d.type === 'member-discount' && d.isActive);
-  if (member && memberDiscount && member.discountRate < 1) {
-    const discountRate = member.discountRate;
-    const saved = currentAmount * (1 - discountRate);
-    const newAmount = currentAmount * discountRate;
-    const memberLevelName: Record<string, string> = {
-      normal: '普通会员',
-      silver: '银卡会员',
-      gold: '金卡会员',
-      diamond: '钻石会员'
-    };
-
-    breakdown.push({
-      step: step++,
-      discountName: `${memberLevelName[member.level]}${(discountRate * 10).toFixed(1)}折`,
-      beforeAmount: currentAmount,
-      afterAmount: newAmount,
-      saved
-    });
-    appliedDiscounts.push({
-      discountId: memberDiscount.id,
-      discountName: `${memberLevelName[member.level]}${(discountRate * 10).toFixed(1)}折`,
-      discountType: 'member-discount',
-      savedAmount: saved
-    });
-    currentAmount = newAmount;
-  }
 
   const fullReductionsApplied: string[] = [];
 
   for (const discount of allDiscounts) {
     if (!discount.isActive) continue;
-    if (discount.type === 'member-discount') continue;
 
     let saved = 0;
     let newAmount = currentAmount;
 
     switch (discount.type) {
+      case 'member-discount': {
+        if (!member || member.discountRate >= 1) continue;
+        const discountRate = member.discountRate;
+        saved = currentAmount * (1 - discountRate);
+        newAmount = currentAmount * discountRate;
+        const memberLevelName: Record<string, string> = {
+          normal: '普通会员',
+          silver: '银卡会员',
+          gold: '金卡会员',
+          diamond: '钻石会员'
+        };
+        breakdown.push({
+          step: step++,
+          discountName: `${memberLevelName[member.level]}${(discountRate * 10).toFixed(1)}折`,
+          beforeAmount: currentAmount,
+          afterAmount: newAmount,
+          saved
+        });
+        appliedDiscounts.push({
+          discountId: discount.id,
+          discountName: `${memberLevelName[member.level]}${(discountRate * 10).toFixed(1)}折`,
+          discountType: 'member-discount',
+          savedAmount: saved
+        });
+        currentAmount = newAmount;
+        continue;
+      }
+
       case 'percentage': {
         if (discount.minAmount && currentAmount < discount.minAmount) continue;
         const rate = discount.value / 100;
@@ -92,10 +94,7 @@ export function calculatePrice(params: CalculateParams): CalculateResult {
 
       case 'fixed': {
         if (discount.applicableScope === 'ticket') {
-          if (session) {
-            const sessionHour = new Date(session.startTime).getHours();
-            if (sessionHour >= 12) break;
-          }
+          if (!isMorningSession) continue;
           saved = discount.value * ticketCount;
         } else {
           saved = discount.value;
@@ -168,7 +167,7 @@ export function formatPrice(price: number): string {
 
 export function getDefaultDiscountOrder(discounts: Discount[]): string[] {
   return discounts
-    .filter(d => d.isActive && d.type !== 'member-discount')
+    .filter(d => d.isActive)
     .sort((a, b) => a.priority - b.priority)
     .map(d => d.id);
 }

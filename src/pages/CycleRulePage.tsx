@@ -20,7 +20,7 @@ export const CycleRulePage: React.FC = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [editingRule, setEditingRule] = useState<CycleRule | null>(null);
   const [selectedRuleForGenerate, setSelectedRuleForGenerate] = useState<CycleRule | null>(null);
-  const [generateResult, setGenerateResult] = useState<{ total: number; skipped: string[] } | null>(null);
+  const [generateResult, setGenerateResult] = useState<{ total: number; skipped: string[]; matched: string[] } | null>(null);
 
   const emptyForm: Omit<CycleRule, 'id' | 'createdAt'> = {
     name: '',
@@ -139,7 +139,7 @@ export const CycleRulePage: React.FC = () => {
 
     const result = generateSessionsFromRule(rule, hall, sessions);
     setSelectedRuleForGenerate(rule);
-    setGenerateResult({ total: result.totalGenerated, skipped: result.skippedDates });
+    setGenerateResult({ total: result.totalGenerated, skipped: result.skippedDates, matched: result.matchedDates });
     setShowPreview(true);
 
     if (result.totalGenerated > 0) {
@@ -500,7 +500,7 @@ export const CycleRulePage: React.FC = () => {
 
       {showPreview && selectedRuleForGenerate && generateResult && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] flex flex-col">
             {generateResult.total > 0 ? (
               <>
                 <div className="flex items-center gap-3 mb-4">
@@ -512,20 +512,52 @@ export const CycleRulePage: React.FC = () => {
                     <p className="text-sm text-gray-500">{selectedRuleForGenerate.name}</p>
                   </div>
                 </div>
-                <div className="p-4 bg-gray-50 rounded-xl space-y-2 mb-5">
+                <div className="p-4 bg-gray-50 rounded-xl space-y-3 mb-4 flex-shrink-0">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">规则匹配日期</span>
+                    <span className="font-bold text-blue-600">{generateResult.matched.length} 个</span>
+                  </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">成功生成场次</span>
                     <span className="font-bold text-green-600">{generateResult.total} 场</span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">冲突跳过日期</span>
+                    <span className="font-bold text-amber-600">{generateResult.skipped.length} 个</span>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-3 mb-4">
+                  {generateResult.matched.length > 0 && (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 mb-2">匹配日期列表</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {generateResult.matched.map(d => {
+                          const isSkipped = generateResult.skipped.includes(d);
+                          return (
+                            <span key={d} className={`px-2 py-1 rounded text-xs ${
+                              isSkipped
+                                ? 'bg-amber-100 text-amber-700 line-through'
+                                : 'bg-green-100 text-green-700'
+                            }`}>
+                              {d}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {generateResult.skipped.length > 0 && (
-                    <div className="pt-2 border-t border-gray-200">
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
                       <div className="flex items-start gap-2 text-sm">
                         <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
                         <div>
-                          <div className="text-gray-600 mb-1">跳过 {generateResult.skipped.length} 个冲突日期：</div>
-                          <div className="text-xs text-amber-600">
-                            {generateResult.skipped.slice(0, 5).join('、')}
-                            {generateResult.skipped.length > 5 && ` 等${generateResult.skipped.length}个`}
+                          <div className="text-amber-700 font-medium mb-1">以下日期因场次冲突被跳过：</div>
+                          <div className="flex flex-wrap gap-1">
+                            {generateResult.skipped.map(d => (
+                              <span key={d} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">{d}</span>
+                            ))}
                           </div>
                         </div>
                       </div>
@@ -544,11 +576,21 @@ export const CycleRulePage: React.FC = () => {
                     <p className="text-sm text-gray-500">{selectedRuleForGenerate.name}</p>
                   </div>
                 </div>
-                <div className="p-4 bg-amber-50 rounded-xl mb-5 text-sm text-amber-700">
+                <div className="p-4 bg-amber-50 rounded-xl mb-4 text-sm text-amber-700">
                   {generateResult.skipped.length > 0
-                    ? `所有${generateResult.skipped.length}个日期均与现有场次冲突`
+                    ? `所有${generateResult.skipped.length}个匹配日期均与现有场次冲突`
                     : '在指定日期范围内没有匹配规则的日期，请检查周期设置。'}
                 </div>
+                {generateResult.matched.length > 0 && (
+                  <div className="p-3 bg-gray-50 rounded-xl mb-4">
+                    <div className="text-sm text-gray-600 mb-2">规则匹配但全部冲突的日期：</div>
+                    <div className="flex flex-wrap gap-1">
+                      {generateResult.matched.map(d => (
+                        <span key={d} className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs line-through">{d}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
             <button
@@ -557,7 +599,7 @@ export const CycleRulePage: React.FC = () => {
                 setSelectedRuleForGenerate(null);
                 setGenerateResult(null);
               }}
-              className="w-full py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600"
+              className="w-full py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 flex-shrink-0"
             >
               确定
             </button>

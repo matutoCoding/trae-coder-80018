@@ -29,18 +29,21 @@ export const DiscountPage: React.FC = () => {
   const [editingDiscount, setEditingDiscount] = useState<Discount | null>(null);
 
   const [discountOrder, setDiscountOrder] = useState<string[]>(() => {
-    const memberDiscountId = discounts.find(d => d.type === 'member-discount')?.id;
-    const others = getDefaultDiscountOrder(discounts);
-    return memberDiscountId ? [memberDiscountId, ...others] : others;
+    return getDefaultDiscountOrder(discounts);
   });
 
   const [showCalculator, setShowCalculator] = useState(true);
   const [calcOriginalTotal, setCalcOriginalTotal] = useState(300);
   const [calcTicketCount, setCalcTicketCount] = useState(4);
   const [calcMemberId, setCalcMemberId] = useState<string | undefined>(members[0]?.id);
-  const [calcSessionId, setCalcSessionId] = useState<string | undefined>(
-    sessions.find(s => new Date(s.startTime).getHours() < 12)?.id
-  );
+  const [calcSessionType, setCalcSessionType] = useState<'morning' | 'normal'>('morning');
+
+  const calcSession = useMemo(() => {
+    if (calcSessionType === 'morning') {
+      return sessions.find(s => s.type === 'morning' || new Date(s.startTime).getHours() < 12);
+    }
+    return sessions.find(s => s.type !== 'morning' && new Date(s.startTime).getHours() >= 12);
+  }, [calcSessionType, sessions]);
 
   const emptyForm: Omit<Discount, 'id'> = {
     name: '',
@@ -59,7 +62,6 @@ export const DiscountPage: React.FC = () => {
 
   const activeDiscounts = useMemo(() => discounts.filter(d => d.isActive), [discounts]);
   const calcMember = members.find(m => m.id === calcMemberId);
-  const calcSession = sessions.find(s => s.id === calcSessionId);
 
   const priceResult = useMemo(() => calculatePrice({
     originalTotal: calcOriginalTotal,
@@ -197,19 +199,14 @@ export const DiscountPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">场次类型（用于早场判断）</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">场次类型</label>
                 <select
-                  value={calcSessionId || ''}
-                  onChange={(e) => setCalcSessionId(e.target.value || undefined)}
+                  value={calcSessionType}
+                  onChange={(e) => setCalcSessionType(e.target.value as 'morning' | 'normal')}
                   className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="">普通场次（12点后）</option>
-                  <option value="__morning__">早场（12点前）</option>
-                  {sessions.slice(0, 5).map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.movieTitle.slice(0, 10)} - {new Date(s.startTime).getHours() < 12 ? '早场' : '普通'}
-                    </option>
-                  ))}
+                  <option value="morning">早场（12点前）— 可享早场立减</option>
+                  <option value="normal">普通场次（12点后）— 不享早场立减</option>
                 </select>
               </div>
             </div>

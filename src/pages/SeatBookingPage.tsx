@@ -25,8 +25,6 @@ export const SeatBookingPage: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const currentHall = halls.find(h => h.id === currentHallId) || halls[0];
-
   const filteredSessions = useMemo(() => {
     return sessions.filter(s => {
       const sessionDate = new Date(s.startTime);
@@ -37,6 +35,7 @@ export const SeatBookingPage: React.FC = () => {
   }, [sessions, selectedDate, currentHallId]);
 
   const currentSession = sessions.find(s => s.id === currentSessionId) || filteredSessions[0];
+  const currentHall = halls.find(h => h.id === currentSession?.hallId) || halls.find(h => h.id === currentHallId) || halls[0];
 
   const selectedSeatDetails = useMemo(() => {
     if (!currentHall || !currentSession) return [];

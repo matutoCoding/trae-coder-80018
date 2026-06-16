@@ -5,6 +5,37 @@ import type {
 } from '@/types';
 import { generateMockData } from '@/data/mockData';
 
+const STORAGE_KEY = 'cinema-ticket-system-data';
+
+function loadFromStorage(): Partial<AppState> | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveToStorage(state: AppState) {
+  try {
+    const toSave = {
+      halls: state.halls,
+      sessions: state.sessions,
+      movies: state.movies,
+      privateCustomers: state.privateCustomers,
+      cycleRules: state.cycleRules,
+      discounts: state.discounts,
+      members: state.members,
+      orders: state.orders,
+      refundRecords: state.refundRecords,
+      changeRecords: state.changeRecords
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch {}
+}
+
 interface AppState {
   halls: Hall[];
   sessions: Session[];
@@ -58,9 +89,25 @@ interface AppState {
   changeOrder: (fromOrderId: string, newOrder: Order, priceDiff: number, reason: string, operator: string) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => {
+function getInitialState() {
+  const saved = loadFromStorage();
+  if (saved && saved.halls && saved.halls.length > 0) {
+    return {
+      halls: saved.halls,
+      sessions: saved.sessions || [],
+      movies: saved.movies || [],
+      privateCustomers: saved.privateCustomers || [],
+      cycleRules: saved.cycleRules || [],
+      discounts: saved.discounts || [],
+      members: saved.members || [],
+      orders: saved.orders || [],
+      refundRecords: saved.refundRecords || [],
+      changeRecords: saved.changeRecords || [],
+      currentHallId: saved.halls[0]?.id || null,
+      currentSessionId: null
+    };
+  }
   const mock = generateMockData();
-
   return {
     halls: mock.halls,
     sessions: mock.sessions,
@@ -73,33 +120,40 @@ export const useAppStore = create<AppState>((set, get) => {
     refundRecords: mock.refundRecords,
     changeRecords: mock.changeRecords,
     currentHallId: mock.halls[0]?.id || null,
-    currentSessionId: mock.sessions[0]?.id || null,
+    currentSessionId: null
+  };
+}
+
+export const useAppStore = create<AppState>((set, get) => {
+  const initial = getInitialState();
+
+  const persist = (newState: Partial<AppState>) => {
+    set(newState);
+    saveToStorage(get());
+  };
+
+  return {
+    ...initial,
 
     setCurrentHall: (id) => set({ currentHallId: id }),
     setCurrentSession: (id) => set({ currentSessionId: id }),
 
-    addHall: (hall) => set((state) => ({ halls: [...state.halls, hall] })),
-    updateHall: (hall) => set((state) => ({
-      halls: state.halls.map((h) => (h.id === hall.id ? hall : h))
-    })),
-    deleteHall: (id) => set((state) => ({
-      halls: state.halls.filter((h) => h.id !== id),
-      currentHallId: state.currentHallId === id ? (state.halls.find(h => h.id !== id)?.id || null) : state.currentHallId
-    })),
+    addHall: (hall) => persist({ halls: [...get().halls, hall] }),
+    updateHall: (hall) => persist({ halls: get().halls.map((h) => (h.id === hall.id ? hall : h)) }),
+    deleteHall: (id) => persist({
+      halls: get().halls.filter((h) => h.id !== id),
+      currentHallId: get().currentHallId === id ? (get().halls.find(h => h.id !== id)?.id || null) : get().currentHallId
+    }),
 
-    addSession: (session) => set((state) => ({ sessions: [...state.sessions, session] })),
-    updateSession: (session) => set((state) => ({
-      sessions: state.sessions.map((s) => (s.id === session.id ? session : s))
-    })),
-    deleteSession: (id) => set((state) => ({
-      sessions: state.sessions.filter((s) => s.id !== id),
-      currentSessionId: state.currentSessionId === id ? (state.sessions.find(s => s.id !== id)?.id || null) : state.currentSessionId
-    })),
-    batchAddSessions: (newSessions) => set((state) => ({
-      sessions: [...state.sessions, ...newSessions]
-    })),
-    updateSessionSeatStatus: (sessionId, seatId, status, occupier) => set((state) => ({
-      sessions: state.sessions.map((s) => {
+    addSession: (session) => persist({ sessions: [...get().sessions, session] }),
+    updateSession: (session) => persist({ sessions: get().sessions.map((s) => (s.id === session.id ? session : s)) }),
+    deleteSession: (id) => persist({
+      sessions: get().sessions.filter((s) => s.id !== id),
+      currentSessionId: get().currentSessionId === id ? null : get().currentSessionId
+    }),
+    batchAddSessions: (newSessions) => persist({ sessions: [...get().sessions, ...newSessions] }),
+    updateSessionSeatStatus: (sessionId, seatId, status, occupier) => persist({
+      sessions: get().sessions.map((s) => {
         if (s.id !== sessionId) return s;
         const newSeatStatus = { ...s.seatStatus, [seatId]: status as any };
         const newSeatOccupier = { ...s.seatOccupier };
@@ -110,52 +164,30 @@ export const useAppStore = create<AppState>((set, get) => {
         }
         return { ...s, seatStatus: newSeatStatus, seatOccupier: Object.keys(newSeatOccupier).length ? newSeatOccupier : undefined };
       })
-    })),
+    }),
 
-    addMovie: (movie) => set((state) => ({ movies: [...state.movies, movie] })),
-    updateMovie: (movie) => set((state) => ({
-      movies: state.movies.map((m) => (m.id === movie.id ? movie : m))
-    })),
-    deleteMovie: (id) => set((state) => ({
-      movies: state.movies.filter((m) => m.id !== id)
-    })),
+    addMovie: (movie) => persist({ movies: [...get().movies, movie] }),
+    updateMovie: (movie) => persist({ movies: get().movies.map((m) => (m.id === movie.id ? movie : m)) }),
+    deleteMovie: (id) => persist({ movies: get().movies.filter((m) => m.id !== id) }),
 
-    addPrivateCustomer: (customer) => set((state) => ({ privateCustomers: [...state.privateCustomers, customer] })),
-    updatePrivateCustomer: (customer) => set((state) => ({
-      privateCustomers: state.privateCustomers.map((c) => (c.id === customer.id ? customer : c))
-    })),
-    deletePrivateCustomer: (id) => set((state) => ({
-      privateCustomers: state.privateCustomers.filter((c) => c.id !== id)
-    })),
+    addPrivateCustomer: (customer) => persist({ privateCustomers: [...get().privateCustomers, customer] }),
+    updatePrivateCustomer: (customer) => persist({ privateCustomers: get().privateCustomers.map((c) => (c.id === customer.id ? customer : c)) }),
+    deletePrivateCustomer: (id) => persist({ privateCustomers: get().privateCustomers.filter((c) => c.id !== id) }),
 
-    addCycleRule: (rule) => set((state) => ({ cycleRules: [...state.cycleRules, rule] })),
-    updateCycleRule: (rule) => set((state) => ({
-      cycleRules: state.cycleRules.map((r) => (r.id === rule.id ? rule : r))
-    })),
-    deleteCycleRule: (id) => set((state) => ({
-      cycleRules: state.cycleRules.filter((r) => r.id !== id)
-    })),
+    addCycleRule: (rule) => persist({ cycleRules: [...get().cycleRules, rule] }),
+    updateCycleRule: (rule) => persist({ cycleRules: get().cycleRules.map((r) => (r.id === rule.id ? rule : r)) }),
+    deleteCycleRule: (id) => persist({ cycleRules: get().cycleRules.filter((r) => r.id !== id) }),
 
-    addDiscount: (discount) => set((state) => ({ discounts: [...state.discounts, discount] })),
-    updateDiscount: (discount) => set((state) => ({
-      discounts: state.discounts.map((d) => (d.id === discount.id ? discount : d))
-    })),
-    deleteDiscount: (id) => set((state) => ({
-      discounts: state.discounts.filter((d) => d.id !== id)
-    })),
+    addDiscount: (discount) => persist({ discounts: [...get().discounts, discount] }),
+    updateDiscount: (discount) => persist({ discounts: get().discounts.map((d) => (d.id === discount.id ? discount : d)) }),
+    deleteDiscount: (id) => persist({ discounts: get().discounts.filter((d) => d.id !== id) }),
 
-    addMember: (member) => set((state) => ({ members: [...state.members, member] })),
-    updateMember: (member) => set((state) => ({
-      members: state.members.map((m) => (m.id === member.id ? member : m))
-    })),
-    deleteMember: (id) => set((state) => ({
-      members: state.members.filter((m) => m.id !== id)
-    })),
+    addMember: (member) => persist({ members: [...get().members, member] }),
+    updateMember: (member) => persist({ members: get().members.map((m) => (m.id === member.id ? member : m)) }),
+    deleteMember: (id) => persist({ members: get().members.filter((m) => m.id !== id) }),
 
-    addOrder: (order) => set((state) => ({ orders: [...state.orders, order] })),
-    updateOrder: (order) => set((state) => ({
-      orders: state.orders.map((o) => (o.id === order.id ? order : o))
-    })),
+    addOrder: (order) => persist({ orders: [...get().orders, order] }),
+    updateOrder: (order) => persist({ orders: get().orders.map((o) => (o.id === order.id ? order : o)) }),
     refundOrder: (orderId, refundAmount, reason, operator) => {
       const state = get();
       const order = state.orders.find(o => o.id === orderId);
@@ -171,7 +203,7 @@ export const useAppStore = create<AppState>((set, get) => {
         createdAt: new Date().toISOString()
       };
 
-      set({
+      persist({
         orders: state.orders.map(o =>
           o.id === orderId
             ? { ...o, status: 'refunded', refundedAt: new Date().toISOString(), refundAmount }
@@ -197,13 +229,12 @@ export const useAppStore = create<AppState>((set, get) => {
         createdAt: new Date().toISOString()
       };
 
-      set({
-        orders: state.orders.map(o =>
-          o.id === fromOrderId ? { ...o, status: 'changed' } : o
-        ),
+      persist({
+        orders: [...state.orders.map(o =>
+          o.id === fromOrderId ? { ...o, status: 'changed' as const } : o
+        ), newOrder],
         changeRecords: [...state.changeRecords, newChange]
       });
-      get().addOrder(newOrder);
     }
   };
 });

@@ -1,10 +1,10 @@
 import type {
   Hall, Session, Movie, PrivateCustomer, CycleRule,
-  Discount, Member, Order, RefundRecord, ChangeRecord, Seat
+  Discount, Member, Order, RefundRecord, ChangeRecord, Seat, SeatStatus
 } from '@/types';
 import { addDays, addWeeks, format, parse, startOfWeek, getDay, nextDay } from 'date-fns';
 
-function generateSeats(rows: number, cols: number): Seat[] {
+export function generateSeats(rows: number, cols: number): Seat[] {
   const seats: Seat[] = [];
   for (let r = 1; r <= rows; r++) {
     for (let c = 1; c <= cols; c++) {
@@ -139,7 +139,7 @@ export function generateMockData() {
           startTime.setHours(hour, minute, 0, 0);
           const endTime = new Date(startTime.getTime() + movie.duration * 60000);
 
-          const seatStatus: Record<string, string> = {};
+          const seatStatus: Record<string, SeatStatus> = {};
           const seatOccupier: Record<string, string> = {};
 
           hall.seats.forEach(seat => {
