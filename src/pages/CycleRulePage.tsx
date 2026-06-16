@@ -161,11 +161,46 @@ export const CycleRulePage: React.FC = () => {
     });
     setCalendarViewMonth(new Date(rule.startDate + 'T00:00:00'));
     setShowPreview(true);
+    setPendingGenerateResult(null);
 
     if (result.totalGenerated > 0) {
       batchAddSessions(result.sessions);
     }
     saveGenerateResult(rule.id, result, rule.name);
+  };
+
+  const [pendingGenerateResult, setPendingGenerateResult] = useState<{
+    result: ReturnType<typeof generateSessionsFromRule>;
+    rule: CycleRule;
+  } | null>(null);
+
+  const handlePreview = (rule: CycleRule) => {
+    const hall = halls.find(h => h.id === rule.hallId);
+    if (!hall) return;
+    const result = generateSessionsFromRule(rule, hall, sessions);
+    setSelectedRuleForGenerate(rule);
+    setGenerateResult({
+      total: result.totalGenerated,
+      skipped: result.skippedDates,
+      matched: result.matchedDates,
+      intervalSkipped: result.intervalSkippedDates
+    });
+    setCalendarViewMonth(new Date(rule.startDate + 'T00:00:00'));
+    setPendingGenerateResult({ result, rule });
+    setShowPreview(true);
+  };
+
+  const confirmPendingGenerate = () => {
+    if (!pendingGenerateResult) return;
+    const { result, rule } = pendingGenerateResult;
+    if (result.totalGenerated > 0) {
+      batchAddSessions(result.sessions);
+    }
+    saveGenerateResult(rule.id, result, rule.name);
+    setPendingGenerateResult(null);
+    setShowPreview(false);
+    setSelectedRuleForGenerate(null);
+    setGenerateResult(null);
   };
 
   const handleViewHistory = (ruleId: string) => {
@@ -349,6 +384,13 @@ export const CycleRulePage: React.FC = () => {
                 >
                   <Play className="w-4 h-4" />
                   批量生成
+                </button>
+                <button
+                  onClick={() => handlePreview(rule)}
+                  className="px-3 py-2 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors text-sm text-blue-600 font-medium"
+                  title="生成前预览"
+                >
+                  预览
                 </button>
                 {hasHistory && (
                   <button
@@ -703,16 +745,45 @@ export const CycleRulePage: React.FC = () => {
               </div>
             )}
 
-            <button
-              onClick={() => {
-                setShowPreview(false);
-                setSelectedRuleForGenerate(null);
-                setGenerateResult(null);
-              }}
-              className="w-full py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 flex-shrink-0"
-            >
-              确定
-            </button>
+            <div className="flex gap-3 flex-shrink-0">
+              {pendingGenerateResult ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setPendingGenerateResult(null);
+                      setShowPreview(false);
+                      setSelectedRuleForGenerate(null);
+                      setGenerateResult(null);
+                    }}
+                    className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={confirmPendingGenerate}
+                    disabled={generateResult.total === 0}
+                    className={`flex-1 py-2.5 rounded-xl transition-colors ${
+                      generateResult.total > 0
+                        ? 'bg-green-500 text-white hover:bg-green-600'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    确认生成 {generateResult.total > 0 ? `(${generateResult.total}场)` : ''}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    setShowPreview(false);
+                    setSelectedRuleForGenerate(null);
+                    setGenerateResult(null);
+                  }}
+                  className="w-full py-2.5 bg-blue-500 text-white rounded-xl hover:bg-blue-600 flex-shrink-0"
+                >
+                  确定
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

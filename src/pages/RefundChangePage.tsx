@@ -245,6 +245,91 @@ export const RefundChangePage: React.FC = () => {
     downloadCsv(`退改签导出_${format(today, 'yyyyMMdd')}.csv`, [header, ...refundRows, ...changeRows].join('\n'));
   };
 
+  const handleExportHandover = () => {
+    const today = startOfDay(new Date());
+    const todayStr = format(today, 'yyyy-MM-dd');
+    const todayEnd = endOfDay(today);
+
+    const hallSummaries: Record<string, {
+      hallId: string; hallName: string;
+      sessions: number; ticketCount: number;
+      sales: number; refund: number;
+      changeDiff: number;
+    }> = {};
+
+    halls.forEach(h => {
+      hallSummaries[h.id] = {
+        hallId: h.id, hallName: h.name,
+        sessions: 0, ticketCount: 0,
+        sales: 0, refund: 0, changeDiff: 0
+      };
+    });
+
+    sessions.forEach(s => {
+      const st = new Date(s.startTime);
+      if (!isSameDay(st, today)) return;
+      if (!hallSummaries[s.hallId]) return;
+      hallSummaries[s.hallId].sessions++;
+    });
+
+    const sessionHallMap = new Map(sessions.map(s => [s.id, s.hallId]));
+
+    orders.forEach(order => {
+      if (order.status === 'cancelled') return;
+      const primaryHallId = sessionHallMap.get(order.tickets[0]?.sessionId || '');
+      if (!primaryHallId || !hallSummaries[primaryHallId]) return;
+      const anyMatch = order.tickets.some(t => {
+        const ts = sessions.find(ss => ss.id === t.sessionId);
+        return ts && isSameDay(new Date(ts.startTime), today);
+      });
+      if (!anyMatch) return;
+      const paidTime = order.paidAt ? new Date(order.paidAt) : new Date(order.createdAt);
+      if (paidTime >= today && paidTime <= todayEnd && order.status === 'paid') {
+        hallSummaries[primaryHallId].sales += order.finalTotal;
+        hallSummaries[primaryHallId].ticketCount += order.tickets.length;
+      }
+    });
+
+    refundRecords.forEach(r => {
+      const rt = new Date(r.createdAt);
+      if (!(rt >= today && rt <= todayEnd)) return;
+      const order = orders.find(o => o.id === r.orderId);
+      if (!order) return;
+      const primaryHallId = sessionHallMap.get(order.tickets[0]?.sessionId || '');
+      if (!primaryHallId || !hallSummaries[primaryHallId]) return;
+      hallSummaries[primaryHallId].refund += r.refundAmount;
+    });
+
+    changeRecords.forEach(r => {
+      const ct = new Date(r.createdAt);
+      if (!(ct >= today && ct <= todayEnd)) return;
+      const order = orders.find(o => o.id === r.toOrderId);
+      if (!order) return;
+      const primaryHallId = sessionHallMap.get(order.tickets[0]?.sessionId || '');
+      if (!primaryHallId || !hallSummaries[primaryHallId]) return;
+      hallSummaries[primaryHallId].changeDiff += r.priceDifference;
+    });
+
+    const header = '影厅,场次,售出票数,售票金额,退款金额,改签差价,净收入';
+    const rows: string[] = [];
+    let totalSessions = 0, totalTickets = 0, totalSales = 0, totalRefund = 0, totalChange = 0;
+
+    Object.values(hallSummaries).forEach(h => {
+      const net = h.sales - h.refund + h.changeDiff;
+      rows.push(`${h.hallName},${h.sessions},${h.ticketCount},${h.sales.toFixed(2)},${h.refund.toFixed(2)},${h.changeDiff.toFixed(2)},${net.toFixed(2)}`);
+      totalSessions += h.sessions;
+      totalTickets += h.ticketCount;
+      totalSales += h.sales;
+      totalRefund += h.refund;
+      totalChange += h.changeDiff;
+    });
+
+    const totalNet = totalSales - totalRefund + totalChange;
+    rows.push(`合计,${totalSessions},${totalTickets},${totalSales.toFixed(2)},${totalRefund.toFixed(2)},${totalChange.toFixed(2)},${totalNet.toFixed(2)}`);
+
+    downloadCsv(`交班汇总_${format(today, 'yyyyMMdd')}.csv`, [header, ...rows].join('\n'));
+  };
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-6 border-b border-gray-200">
@@ -357,6 +442,13 @@ export const RefundChangePage: React.FC = () => {
                 <Download className="w-4 h-4" />
                 导出退改签
               </button>
+              <button
+                onClick={handleExportHandover}
+                className="flex items-center gap-1.5 px-3 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                交班汇总
+              </button>
             </div>
           )}
         </div>
@@ -466,6 +558,33 @@ export const RefundChangePage: React.FC = () => {
                               </div>
                             </div>
                           )}
+
+                          {(() => {
+                            const audits = session?.removedSeatAudit?.filter(a => a.orderNo === order.orderNo) || [];
+                            if (audits.length === 0) return null;
+                            return (
+                              <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                                  <div className="text-sm font-semibold text-amber-800">
+                                    影厅布局调整追溯：本订单有座位被移除
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  {audits.map(a => (
+                                    <div key={a.seatId + a.removedAt} className="flex justify-between text-xs bg-white rounded-lg px-3 py-2">
+                                      <span className="text-amber-800 font-mono font-semibold">{a.seatLabel}</span>
+                                      <span className="text-amber-600">
+                                        {a.status === 'occupied' ? '已售票' : '包场'}
+                                        {' · '}
+                                        移除：{formatDateTime(a.removedAt)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <div className="space-y-4">

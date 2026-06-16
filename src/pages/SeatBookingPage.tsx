@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Search, Ticket, BarChart3, TrendingUp, Users, DollarSign } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Search, Ticket, BarChart3, TrendingUp, Users, DollarSign, AlertTriangle } from 'lucide-react';
 import { useAppStore } from '@/store/appStore';
 import { SeatMap } from '@/components/SeatMap';
 import { SessionCard } from '@/components/SessionCard';
@@ -150,6 +150,7 @@ export const SeatBookingPage: React.FC = () => {
       o.tickets.some(t => sessionIds.has(t.sessionId))
     );
     const rangeOrderIds = new Set(rangeOrders.map(o => o.id));
+    const ticketCount = rangeOrders.filter(o => o.status === 'paid').reduce((sum, o) => sum + o.tickets.length, 0);
     const salesAmount = rangeOrders.filter(o => o.status === 'paid').reduce((sum, o) => sum + o.finalTotal, 0);
 
     const rangeRefunds = refundRecords.filter(r => {
@@ -158,6 +159,10 @@ export const SeatBookingPage: React.FC = () => {
         && rangeOrderIds.has(r.orderId);
     });
     const refundAmount = rangeRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+    const refundTicketCount = rangeRefunds.reduce((sum, r) => {
+      const order = orders.find(o => o.id === r.orderId);
+      return sum + (order?.tickets.length || 0);
+    }, 0);
 
     const rangeChanges = changeRecords.filter(r => {
       const d = new Date(r.createdAt);
@@ -168,12 +173,30 @@ export const SeatBookingPage: React.FC = () => {
 
     const dailyData = dateRange.map(date => {
       const dayStr = format(date, 'yyyy-MM-dd');
+      const dayStart = startOfDay(date);
+      const dayEnd = addDays(dayStart, 1);
       const daySessions = rangeSessions.filter(s => format(new Date(s.startTime), 'yyyy-MM-dd') === dayStr);
       const dayTotalSeats = daySessions.reduce((sum, s) => sum + Object.keys(s.seatStatus).length, 0);
       const dayOccupied = daySessions.reduce((sum, s) => sum + Object.values(s.seatStatus).filter(st => st === 'occupied' || st === 'booked-private').length, 0);
       const daySessionIds = new Set(daySessions.map(s => s.id));
       const dayOrders = orders.filter(o => o.status === 'paid' && o.tickets.some(t => daySessionIds.has(t.sessionId)));
+      const dayOrderIds = new Set(dayOrders.map(o => o.id));
       const daySales = dayOrders.reduce((sum, o) => sum + o.finalTotal, 0);
+      const dayTickets = dayOrders.reduce((sum, o) => sum + o.tickets.length, 0);
+
+      const dayRefunds = refundRecords.filter(r => {
+        const d = new Date(r.createdAt);
+        return isWithinInterval(d, { start: dayStart, end: dayEnd }) && dayOrderIds.has(r.orderId);
+      });
+      const dayRefund = dayRefunds.reduce((sum, r) => sum + r.refundAmount, 0);
+
+      const dayChanges = changeRecords.filter(r => {
+        const d = new Date(r.createdAt);
+        return isWithinInterval(d, { start: dayStart, end: dayEnd })
+          && (dayOrderIds.has(r.fromOrderId) || dayOrderIds.has(r.toOrderId));
+      });
+      const dayChangeDiff = dayChanges.reduce((sum, r) => sum + r.priceDifference, 0);
+
       return {
         date: dayStr,
         label: format(date, 'MM/dd EEE'),
@@ -181,7 +204,11 @@ export const SeatBookingPage: React.FC = () => {
         totalSeats: dayTotalSeats,
         occupied: dayOccupied,
         rate: dayTotalSeats > 0 ? (dayOccupied / dayTotalSeats * 100) : 0,
-        sales: daySales
+        sales: daySales,
+        tickets: dayTickets,
+        refund: dayRefund,
+        changeDiff: dayChangeDiff,
+        net: daySales - dayRefund + dayChangeDiff
       };
     });
 
@@ -190,12 +217,15 @@ export const SeatBookingPage: React.FC = () => {
       totalSeats,
       occupiedSeats,
       occupancyRate,
+      ticketCount,
       salesAmount,
       refundAmount,
+      refundTicketCount,
       changeDiff,
+      netIncome: salesAmount - refundAmount + changeDiff,
       dailyData
     };
-  }, [selectedDate, dashboardHallFilter, sessions, orders, refundRecords, changeRecords]);
+  }, [selectedDate, dashboardRange, dashboardHallFilter, sessions, orders, refundRecords, changeRecords]);
 
   return (
     <div className="flex h-full">
@@ -265,7 +295,7 @@ export const SeatBookingPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
               <div className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
                   <TrendingUp className="w-3.5 h-3.5" />
@@ -280,6 +310,7 @@ export const SeatBookingPage: React.FC = () => {
                   售票金额
                 </div>
                 <div className="text-xl font-bold text-green-600">{formatPrice(dashboardData.salesAmount)}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{dashboardData.ticketCount}张票</div>
               </div>
               <div className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
@@ -294,6 +325,7 @@ export const SeatBookingPage: React.FC = () => {
                   退票金额
                 </div>
                 <div className="text-xl font-bold text-amber-600">{formatPrice(dashboardData.refundAmount)}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{dashboardData.refundTicketCount}张</div>
               </div>
               <div className="bg-white rounded-xl p-3 shadow-sm">
                 <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
@@ -310,7 +342,7 @@ export const SeatBookingPage: React.FC = () => {
                   净收入
                 </div>
                 <div className="text-xl font-bold text-gray-800">
-                  {formatPrice(dashboardData.salesAmount - dashboardData.refundAmount + dashboardData.changeDiff)}
+                  {formatPrice(dashboardData.netIncome)}
                 </div>
               </div>
             </div>
@@ -326,7 +358,11 @@ export const SeatBookingPage: React.FC = () => {
                       <th className="pb-2 text-center text-xs text-gray-500 font-medium">总座位</th>
                       <th className="pb-2 text-center text-xs text-gray-500 font-medium">已售</th>
                       <th className="pb-2 text-center text-xs text-gray-500 font-medium">上座率</th>
+                      <th className="pb-2 text-center text-xs text-gray-500 font-medium">售票数</th>
                       <th className="pb-2 text-right text-xs text-gray-500 font-medium">售票额</th>
+                      <th className="pb-2 text-right text-xs text-gray-500 font-medium">退票</th>
+                      <th className="pb-2 text-right text-xs text-gray-500 font-medium">改签</th>
+                      <th className="pb-2 text-right text-xs text-gray-500 font-medium">净收入</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -345,7 +381,13 @@ export const SeatBookingPage: React.FC = () => {
                             {d.rate.toFixed(1)}%
                           </span>
                         </td>
+                        <td className="py-2 text-center text-gray-600">{d.tickets}</td>
                         <td className="py-2 text-right font-medium text-green-600">{formatPrice(d.sales)}</td>
+                        <td className="py-2 text-right text-amber-600">{d.refund > 0 ? `-${formatPrice(d.refund)}` : '-'}</td>
+                        <td className={`py-2 text-right font-medium ${d.changeDiff > 0 ? 'text-red-500' : d.changeDiff < 0 ? 'text-green-500' : 'text-gray-400'}`}>
+                          {d.changeDiff !== 0 ? `${d.changeDiff > 0 ? '+' : ''}${formatPrice(d.changeDiff)}` : '-'}
+                        </td>
+                        <td className="py-2 text-right font-semibold text-gray-800">{formatPrice(d.net)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -453,6 +495,47 @@ export const SeatBookingPage: React.FC = () => {
               selectedSeats={selectedSeats}
               onSeatClick={handleSeatClick}
             />
+
+            {currentSession.removedSeatAudit && currentSession.removedSeatAudit.length > 0 && (
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  <div className="text-sm font-semibold text-amber-800">
+                    影厅布局调整追溯：{currentSession.removedSeatAudit.length} 个已售座位被移除
+                  </div>
+                </div>
+                <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-left sticky top-0 bg-amber-50">
+                      <tr className="text-amber-700">
+                        <th className="pb-2 pr-3 font-medium">原座位</th>
+                        <th className="pb-2 pr-3 font-medium">原状态</th>
+                        <th className="pb-2 pr-3 font-medium">顾客/占用人</th>
+                        <th className="pb-2 pr-3 font-medium">关联订单号</th>
+                        <th className="pb-2 pr-3 font-medium">移除时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-amber-900">
+                      {currentSession.removedSeatAudit.map(a => (
+                        <tr key={a.seatId + a.removedAt} className="border-t border-amber-200/60">
+                          <td className="py-1.5 pr-3 font-mono font-semibold">{a.seatLabel}</td>
+                          <td className="py-1.5 pr-3">
+                            <span className={`px-2 py-0.5 rounded ${
+                              a.status === 'occupied' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {a.status === 'occupied' ? '已售票' : '包场占用'}
+                            </span>
+                          </td>
+                          <td className="py-1.5 pr-3">{a.occupier || '—'}</td>
+                          <td className="py-1.5 pr-3 font-mono text-amber-800">{a.orderNo || '—'}</td>
+                          <td className="py-1.5 pr-3 text-amber-700">{formatDateTime(a.removedAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
